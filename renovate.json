@@ -1,5 +1,24 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "dependencyDashboard": true
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "dependencyDashboard": true,
+  "platformAutomerge": false,
+  "packageRules": [
+    {
+      "description": "Everything non-major merges itself once the smoke tests pass on both architectures.",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "description": "Upstream agents wait three days, so a release pulled or patched within days of publishing never reaches a customer image.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["!ghcr.io/ampbase-io/supervisor", "!alpine", "!gcr.io/distroless/**"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "The supervisor is normally moved by the supervisor-release dispatch within minutes; this rule is the fallback if a dispatch is lost.",
+      "matchPackageNames": ["ghcr.io/ampbase-io/supervisor"],
+      "commitMessageTopic": "supervisor"
+    }
+  ]
 }
