@@ -1,9 +1,10 @@
 name: build
 
 # Every image is smoke-tested natively on amd64 and arm64 on every run.
-# Anything other than a pull request then publishes: a push to main
-# (a merged Renovate bump, say), a manual run, or supervisor-release.yml
-# calling in after it has moved the supervisor pin.
+# Outside pull requests, an image whose build inputs changed is then
+# published from main's head: after a push to main (a merged Renovate
+# bump, say), a manual run, or supervisor-release.yml calling in after it
+# has moved the supervisor pin. See the publish job's gate.
 
 on:
   pull_request:
@@ -76,6 +77,12 @@ jobs:
       matrix:
         image: ${{ fromJSON(needs.images.outputs.names) }}
     runs-on: ubuntu-24.04
+    # One publish per image at a time. With the main-HEAD gate below, the
+    # last publish to run is always of main's newest commit, so a slower
+    # run of an older commit cannot overwrite :latest after a newer one.
+    concurrency:
+      group: publish-${{ matrix.image }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
@@ -89,7 +96,44 @@ jobs:
           ref: ${{ inputs.ref }}
       - id: versions
         run: scripts/image-versions "images/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Decide whether to publish
+        id: gate
+        env:
+          IMAGE_DIR: images/${{ matrix.image }}
+          TAG: ${{ steps.versions.outputs.agent_version }}-ampbase${{ steps.versions.outputs.supervisor_version }}
+        run: |
+          # Only main's current head publishes. This turns a manual run on
+          # a branch into a dry run, and lets an older commit's run, queued
+          # behind a newer one, stand down.
+          head=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$(git rev-parse HEAD)" != "$head" ]; then
+            echo "::notice::$(git rev-parse --short HEAD) is not main's head; not publishing."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The image's whole input is its directory, so its git tree hash
+          # identifies the build. When the exact tag already carries it,
+          # this commit changed nothing the image is built from (a README
+          # edit, an Action bump), and republishing would only move the
+          # tag to a new, equivalent digest. A lookup that fails for any
+          # reason, including the tag not existing yet, publishes.
+          tree=$(git rev-parse "HEAD:${IMAGE_DIR}")
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          published=$(docker buildx imagetools inspect "${REPOSITORY}:${TAG}" --format '{{json .Image}}' 2>/dev/null \
+            | jq -r '.["linux/amd64"].config.Labels["io.ampbase.source.tree"] // empty' || true)
+          if [ "$published" = "$tree" ]; then
+            echo "::notice::${REPOSITORY}:${TAG} is already built from tree ${tree}; not publishing."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@v6
+        if: steps.gate.outputs.publish == 'true'
         id: meta
         with:
           images: ${{ env.REPOSITORY }}
@@ -100,13 +144,11 @@ jobs:
             type=raw,value=latest
           labels: |
             org.opencontainers.image.version=${{ steps.versions.outputs.agent_version }}-ampbase${{ steps.versions.outputs.supervisor_version }}
+            io.ampbase.source.tree=${{ steps.gate.outputs.tree }}
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        if: steps.gate.outputs.publish == 'true'
       - uses: docker/build-push-action@v7
+        if: steps.gate.outputs.publish == 'true'
         id: build
         with:
           context: images/${{ matrix.image }}
@@ -118,11 +160,14 @@ jobs:
             AGENT_VERSION=${{ steps.versions.outputs.agent_version }}
             SUPERVISOR_VERSION=${{ steps.versions.outputs.supervisor_version }}
       - uses: sigstore/cosign-installer@v4
+        if: steps.gate.outputs.publish == 'true'
       - name: Sign
+        if: steps.gate.outputs.publish == 'true'
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${REPOSITORY}@${DIGEST}"
       - uses: actions/attest-build-provenance@v4
+        if: steps.gate.outputs.publish == 'true'
         with:
           subject-name: ${{ env.REPOSITORY }}
           subject-digest: ${{ steps.build.outputs.digest }}

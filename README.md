@@ -19,8 +19,13 @@ Write the `supervisor.yaml` the Ampbase install wizard gives you, then:
 ```sh
 docker run -d --name ampbase --restart unless-stopped \
   -v "$(pwd)/supervisor.yaml:/etc/ampbase/supervisor.yaml:ro" \
+  -v ampbase-state:/var/lib/opamp-supervisor \
   ghcr.io/ampbase-io/otelcol-contrib:0.162.0-ampbase0.17.0
 ```
+
+Keep the `ampbase-state` volume. It holds the agent's identity and its
+last good config, so a container recreated from a newer tag stays the
+same agent rather than enrolling as a new one.
 
 The collector is at `/usr/bin/otelcol` and its config at
 `/etc/otelcol/config.yaml`, the paths the wizard's Linux snippet already
@@ -30,7 +35,7 @@ uses. The image runs as UID 10001.
 
 | Tag | Moves when |
 |---|---|
-| `0.162.0-ampbase0.17.0` | only when the same versions are rebuilt (a base-image patch) |
+| `0.162.0-ampbase0.17.0` | only when the image's other inputs change (a base-image patch) |
 | `0.162.0` | the supervisor is released |
 | `latest` | the agent or the supervisor is released |
 
@@ -72,7 +77,8 @@ Each image is a directory under `images/` holding:
 - `smoke/remote-config.yaml`, the config the smoke test's OpAMP server
   delivers.
 
-To run the smoke test locally:
+To run the smoke test locally (Linux only: the container reaches the
+test's OpAMP server over host networking, which Docker Desktop lacks):
 
 ```sh
 docker build -t smoke:otelcol-contrib images/otelcol-contrib

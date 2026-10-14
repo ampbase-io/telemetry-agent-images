@@ -207,20 +207,17 @@ func renderSupervisorConfig(t *testing.T, path, endpoint string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, struct{ Endpoint string }{endpoint}); err != nil {
+		t.Fatal(err)
+	}
 	out := filepath.Join(t.TempDir(), "supervisor.yaml")
-	f, err := os.Create(out)
-	if err != nil {
+	if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	if err := tmpl.Execute(f, struct{ Endpoint string }{endpoint}); err != nil {
-		t.Fatal(err)
-	}
-	// The image runs as UID 10001, which must be able to read the mount;
-	// the directory holding it is created 0700 by t.TempDir.
-	if err := os.Chmod(filepath.Dir(out), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// The image runs as UID 10001, which reads the mounted file through
+	// its own mode alone. Chmod rather than trust WriteFile's mode, which
+	// the umask can narrow.
 	if err := os.Chmod(out, 0o644); err != nil {
 		t.Fatal(err)
 	}

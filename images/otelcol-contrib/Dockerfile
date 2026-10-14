@@ -2,9 +2,11 @@
 # (contrib distribution). Both binaries are copied out of their published,
 # multi-arch images onto a distroless base; nothing is compiled here.
 #
-# Every FROM is pinned by tag and digest. Renovate moves the pins, and
-# scripts/image-tags reads the agent and supervisor tags off the stage
-# names below to tag the published image, so keep the `AS` names stable.
+# Every FROM is pinned by tag and digest, and Renovate moves the pins.
+# Keep the two stage lines below in their `FROM <image>:<tag>@<digest> AS
+# <name>` form: scripts/image-versions reads the published image's tags
+# off them, and supervisor-release.yml rewrites the supervisor line with
+# a regex that matches only that form.
 FROM ghcr.io/ampbase-io/supervisor:v0.17.0@sha256:3a37b7f9deba6e722f847081e51cda4b64a62e1f9b3e31355ff0729476e5ff20 AS supervisor
 
 FROM otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6 AS agent
