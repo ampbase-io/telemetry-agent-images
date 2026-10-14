@@ -1,0 +1,129 @@
+name: build
+
+# Every image is smoke-tested natively on amd64 and arm64 on every run.
+# Anything other than a pull request then publishes: a push to main
+# (a merged Renovate bump, say), a manual run, or supervisor-release.yml
+# calling in after it has moved the supervisor pin.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to build. Defaults to the triggering ref.
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - id: list
+        run: |
+          names=$(find images -mindepth 2 -maxdepth 2 -name Dockerfile -printf '%h\n' \
+            | xargs -n1 basename | sort | jq -Rnc '[inputs]')
+          echo "names=$names" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: images
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.images.outputs.names) }}
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: smoke/go.mod
+          cache-dependency-path: smoke/go.sum
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: images/${{ matrix.image }}
+          load: true
+          tags: smoke:${{ matrix.image }}
+      - name: Smoke test
+        working-directory: smoke
+        env:
+          SMOKE_IMAGE: smoke:${{ matrix.image }}
+          SMOKE_CASE: ${{ github.workspace }}/images/${{ matrix.image }}/smoke
+        run: go test -count=1 -v ./...
+
+  publish:
+    needs: [images, test]
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.images.outputs.names) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REPOSITORY: ghcr.io/ampbase-io/${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - id: versions
+        run: scripts/image-versions "images/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.REPOSITORY }}
+          # The first tag names exactly what is inside; the other two move.
+          tags: |
+            type=raw,value=${{ steps.versions.outputs.agent_version }}-ampbase${{ steps.versions.outputs.supervisor_version }}
+            type=raw,value=${{ steps.versions.outputs.agent_version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.versions.outputs.agent_version }}-ampbase${{ steps.versions.outputs.supervisor_version }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: images/${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            AGENT_VERSION=${{ steps.versions.outputs.agent_version }}
+            SUPERVISOR_VERSION=${{ steps.versions.outputs.supervisor_version }}
+      - uses: sigstore/cosign-installer@v4
+      - name: Sign
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${REPOSITORY}@${DIGEST}"
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REPOSITORY }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

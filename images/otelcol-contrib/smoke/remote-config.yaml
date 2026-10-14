@@ -1,0 +1,19 @@
+# The config the smoke test's OpAMP server delivers. health_check is what
+# the supervisor polls (health_check_url in supervisor.yaml), so a healthy
+# report means the collector is running this config, not merely spawned.
+extensions:
+  health_check:
+    endpoint: localhost:13133
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: localhost:4318
+exporters:
+  debug: {}
+service:
+  extensions: [health_check]
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [debug]

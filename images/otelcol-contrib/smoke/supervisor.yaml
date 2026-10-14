@@ -1,0 +1,15 @@
+# Rendered by smoke/smoke_test.go; {{.Endpoint}} is its OpAMP server.
+# The agent block is the one the Ampbase install wizard writes for a
+# Linux collector, so the smoke test also proves the wizard's snippet
+# runs against this image.
+version: 1
+server:
+  endpoint: {{.Endpoint}}
+  api_key: agent_smoke_test
+  transport: http
+  poll_interval_seconds: 1
+agent:
+  type: otelcol
+  binary_path: /usr/bin/otelcol
+  config_path: /etc/otelcol/config.yaml
+  health_check_url: http://localhost:13133/

@@ -1,0 +1,105 @@
+name: supervisor-release
+
+# Fired by ampbase-io/ampbase's supervisor-release workflow when a stable
+# supervisor version is published (payload: {"version": "vX.Y.Z"}).
+#
+# That dispatch goes out when the release *binaries* are uploaded, at the
+# same moment ampbase-io/supervisor is told to build the supervisor image
+# this repo copies from, so the image usually does not exist yet. The bump
+# job waits for it, moves every Dockerfile's supervisor pin to the new tag
+# and digest, and commits that to main; build.yml is then called directly,
+# because a push made with GITHUB_TOKEN does not trigger workflows.
+#
+# The commit is what keeps the repo the record of what was published: a
+# rebuild from an unbumped pin (the next Renovate merge, say) would
+# otherwise republish :latest with the previous supervisor.
+#
+# Renovate tracks the same image, so a lost dispatch is caught on its next
+# run rather than never.
+
+on:
+  repository_dispatch:
+    types: [supervisor-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Supervisor version to move to (vX.Y.Z)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    env:
+      VERSION: ${{ github.event.client_payload.version || inputs.version }}
+      SUPERVISOR: ghcr.io/ampbase-io/supervisor
+    steps:
+      - name: Validate version
+        run: |
+          # Stable releases only: the monorepo never dispatches a
+          # pre-release, and :latest must not move to one by hand either.
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: '$VERSION' is not a stable vX.Y.Z version" >&2
+            exit 1
+          fi
+
+      - name: Wait for the supervisor image
+        id: image
+        run: |
+          # The image build in ampbase-io/supervisor takes a few minutes;
+          # 60 tries 30s apart gives it half an hour before this fails.
+          for _ in $(seq 60); do
+            if digest=$(docker buildx imagetools inspect "$SUPERVISOR:$VERSION" \
+                --format '{{json .Manifest.Digest}}' 2>/dev/null); then
+              echo "digest=$(jq -r . <<<"$digest")" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "error: $SUPERVISOR:$VERSION did not appear within 30 minutes" >&2
+          exit 1
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Move the supervisor pin
+        id: commit
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          sed -i -E "s|^FROM ${SUPERVISOR}:[^ ]+ AS supervisor\$|FROM ${SUPERVISOR}:${VERSION}@${DIGEST} AS supervisor|" \
+            images/*/Dockerfile
+          if git diff --quiet; then
+            echo "Already on $VERSION; building main as it stands."
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "images: supervisor ${VERSION}"
+          # main may have moved while this job waited on the image.
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: bump
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.bump.outputs.sha }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
