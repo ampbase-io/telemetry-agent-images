@@ -79,7 +79,8 @@ jobs:
     runs-on: ubuntu-24.04
     # One publish per image at a time. With the main-HEAD gate below, the
     # last publish to run is always of main's newest commit, so a slower
-    # run of an older commit cannot overwrite :latest after a newer one.
+    # run of an older commit cannot move the <agent> tag back after a
+    # newer one.
     concurrency:
       group: publish-${{ matrix.image }}
       cancel-in-progress: false
@@ -137,11 +138,12 @@ jobs:
         id: meta
         with:
           images: ${{ env.REPOSITORY }}
-          # The first tag names exactly what is inside; the other two move.
+          # The first tag names exactly what is inside; the second moves
+          # with each supervisor release. There is deliberately no :latest,
+          # which names no version at all.
           tags: |
             type=raw,value=${{ steps.versions.outputs.agent_version }}-ampbase${{ steps.versions.outputs.supervisor_version }}
             type=raw,value=${{ steps.versions.outputs.agent_version }}
-            type=raw,value=latest
           labels: |
             org.opencontainers.image.version=${{ steps.versions.outputs.agent_version }}-ampbase${{ steps.versions.outputs.supervisor_version }}
             io.ampbase.source.tree=${{ steps.gate.outputs.tree }}

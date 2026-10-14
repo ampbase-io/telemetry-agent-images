@@ -37,8 +37,8 @@ uses. The image runs as UID 10001.
 |---|---|
 | `0.162.0-ampbase0.17.0` | only when the image's other inputs change (a base-image patch) |
 | `0.162.0` | the supervisor is released |
-| `latest` | the agent or the supervisor is released |
 
+There is no `latest` tag: every tag names the agent version it carries.
 Pin the first form, or a digest, in production.
 
 ## Keeping up to date
@@ -58,11 +58,11 @@ Every image is signed with cosign (keyless) and carries SLSA build
 provenance:
 
 ```sh
-cosign verify ghcr.io/ampbase-io/otelcol-contrib:latest \
+cosign verify ghcr.io/ampbase-io/otelcol-contrib:0.162.0-ampbase0.17.0 \
   --certificate-identity-regexp '^https://github.com/ampbase-io/telemetry-agent-images/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-gh attestation verify oci://ghcr.io/ampbase-io/otelcol-contrib:latest \
+gh attestation verify oci://ghcr.io/ampbase-io/otelcol-contrib:0.162.0-ampbase0.17.0 \
   --repo ampbase-io/telemetry-agent-images
 ```
 
