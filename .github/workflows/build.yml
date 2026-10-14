@@ -161,7 +161,7 @@ jobs:
           build-args: |
             AGENT_VERSION=${{ steps.versions.outputs.agent_version }}
             SUPERVISOR_VERSION=${{ steps.versions.outputs.supervisor_version }}
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         if: steps.gate.outputs.publish == 'true'
       - name: Sign
         if: steps.gate.outputs.publish == 'true'
