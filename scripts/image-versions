@@ -24,6 +24,20 @@ stage_tag() {
 agent=$(stage_tag agent)
 supervisor=$(stage_tag supervisor)
 
+# An agent tag can carry a variant after its version (Vector's
+# 0.59.0-distroless-static), which names the upstream build, not the
+# release. The published tag names the release alone.
+# A suffix holding a digit is a pre-release or a rebuild (5.2.0-rc1,
+# 0.59.0-1-distroless-static), not a variant: publishing it under the
+# release's tag would pass one build off as another, so refuse it.
+agent_release=$(grep -oE '^v?[0-9]+(\.[0-9]+)*' <<<"$agent" || true)
+suffix="${agent#"$agent_release"}"
+if [ -z "$agent_release" ] || [[ "$suffix" =~ [0-9] ]]; then
+  echo "error: agent tag $agent is not a release version with an optional variant" >&2
+  exit 1
+fi
+agent="$agent_release"
+
 # The supervisor's release tags carry a leading v; the image tag drops it
 # so the suffix reads as one version (0.162.0-ampbase0.17.0).
 echo "agent_version=${agent}"

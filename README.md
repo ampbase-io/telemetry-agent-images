@@ -7,17 +7,20 @@ manages the agent's configuration from then on.
 | Agent | Image |
 |---|---|
 | OpenTelemetry Collector (contrib) | `ghcr.io/ampbase-io/otelcol-contrib` |
-| Fluent Bit | *planned* |
-| Vector | *planned* |
+| Fluent Bit | `ghcr.io/ampbase-io/fluent-bit` |
+| Vector | `ghcr.io/ampbase-io/vector` |
 | Telegraf | *planned* |
 | Refinery | *planned* |
 
 ## Running
 
-Write the `supervisor.yaml` the Ampbase install wizard gives you, then:
+Write a `supervisor.yaml` whose `agent` block uses the image's paths
+(see [Agent paths](#agent-paths)). For the collector, the one the Ampbase
+install wizard gives you already does. Then:
 
 ```sh
 docker run -d --name ampbase --restart unless-stopped \
+  --network host \
   -v "$(pwd)/supervisor.yaml:/etc/ampbase/supervisor.yaml:ro" \
   -v ampbase-state:/var/lib/opamp-supervisor \
   ghcr.io/ampbase-io/otelcol-contrib:0.162.0-ampbase0.17.0
@@ -25,11 +28,51 @@ docker run -d --name ampbase --restart unless-stopped \
 
 Keep the `ampbase-state` volume. It holds the agent's identity and its
 last good config, so a container recreated from a newer tag stays the
-same agent rather than enrolling as a new one.
+same agent rather than enrolling as a new one. `--network host` lets
+applications on the host reach the agent's receivers at `localhost`;
+without it, publish the ports your config listens on with `-p`.
 
-The collector is at `/usr/bin/otelcol` and its config at
-`/etc/otelcol/config.yaml`, the paths the wizard's Linux snippet already
-uses. The image runs as UID 10001.
+Every image runs as UID 10001. A volume or bind mount the agent reads
+or writes, such as host log files, must be readable by that UID; run
+with `--user 0` if it cannot be.
+
+### Agent paths
+
+| Image | `binary_path` | `config_path` | Health |
+|---|---|---|---|
+| otelcol-contrib | `/usr/bin/otelcol` | `/etc/otelcol/config.yaml` | `:13133` (`health_check` extension) |
+| fluent-bit | `/usr/local/bin/fluent-bit` | `/etc/fluent-bit/fluent-bit.conf` | `:2020/api/v1/health` |
+| vector | `/usr/local/bin/vector` | `/etc/vector/vector.yaml` | `:8686/health` (from `api.address`) |
+
+Only the collector's paths match the wizard's snippet; set the others'
+yourself. Fluent Bit's binary is also at upstream's
+`/fluent-bit/bin/fluent-bit`. The supervisor owns each config directory,
+so any file name in it works.
+
+**Fluent Bit** picks its config format from the file extension: `.yaml`
+and `.yml` are parsed as YAML, anything else as the classic format. Use
+the classic format at a `.conf` path: Ampbase's intelligence export can
+only be added to a classic config. The delivered config's `[SERVICE]`
+section needs:
+
+- `HTTP_Server On` and `Health_Check On`. With `health_check_url` set,
+  the supervisor stops Fluent Bit and fails the config if
+  `/api/v1/health` does not answer.
+- `Hot_Reload On`. Without it, Fluent Bit ignores the reload the
+  supervisor sends on a config change and keeps running the old config
+  while reporting healthy.
+
+Its data directory, for tail databases and `storage.path`, is
+`/var/lib/fluent-bit`.
+
+**Vector** reports health only when the delivered config sets
+`api.enabled: true`; without it the supervisor can only tell that the
+process is running. Its data directory is `/var/lib/vector`. Vector
+does not expand `${VAR}` in config text unless
+`VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true` is set. The image
+leaves it unset: with it, a delivered config can read every variable in
+the container's environment. Pass it with `docker run -e` if your
+configs need it.
 
 ## Tags
 
@@ -72,7 +115,9 @@ Each image is a directory under `images/` holding:
 
 - `Dockerfile`, with the supervisor and the agent as tagged, digest-pinned
   stages named `AS supervisor` and `AS agent`.
-  `scripts/image-versions` reads the image tags off those two lines.
+  `scripts/image-versions` reads the image tags off those two lines,
+  dropping a variant suffix from the agent's (Vector's
+  `-distroless-static`).
 - `smoke/supervisor.yaml`, a template over `{{.Endpoint}}`.
 - `smoke/remote-config.yaml`, the config the smoke test's OpAMP server
   delivers.

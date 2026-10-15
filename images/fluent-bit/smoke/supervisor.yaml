@@ -1,0 +1,14 @@
+# Rendered by smoke/smoke_test.go; {{.Endpoint}} is its OpAMP server.
+# The agent block is the README's: the supervisor README's Fluent Bit
+# paths, except config_path ends in .conf for the classic format.
+version: 1
+server:
+  endpoint: {{.Endpoint}}
+  api_key: agent_smoke_test
+  transport: http
+  poll_interval_seconds: 1
+agent:
+  type: fluent-bit
+  binary_path: /usr/local/bin/fluent-bit
+  config_path: /etc/fluent-bit/fluent-bit.conf
+  health_check_url: http://localhost:2020/api/v1/health

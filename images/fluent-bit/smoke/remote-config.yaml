@@ -1,0 +1,20 @@
+# The config the smoke test's OpAMP server delivers, in the classic format
+# (supervisor.yaml's config_path ends in .conf), the only one Ampbase's
+# intelligence export can be added to. /api/v1/health is what the
+# supervisor polls, and Fluent Bit serves it only with both HTTP_Server
+# and Health_Check on, so a healthy report means Fluent Bit is running
+# this config, not merely spawned. Hot_Reload is what a later config
+# change needs to take effect; see the README.
+[SERVICE]
+    HTTP_Server  On
+    HTTP_Listen  127.0.0.1
+    HTTP_Port    2020
+    Health_Check On
+    Hot_Reload   On
+
+[INPUT]
+    Name dummy
+
+[OUTPUT]
+    Name  null
+    Match *
