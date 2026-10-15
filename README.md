@@ -14,10 +14,13 @@ manages the agent's configuration from then on.
 
 ## Running
 
-Write the `supervisor.yaml` the Ampbase install wizard gives you, then:
+Write a `supervisor.yaml` whose `agent` block uses the image's paths
+(see [Agent paths](#agent-paths)). For the collector, the one the Ampbase
+install wizard gives you already does. Then:
 
 ```sh
 docker run -d --name ampbase --restart unless-stopped \
+  --network host \
   -v "$(pwd)/supervisor.yaml:/etc/ampbase/supervisor.yaml:ro" \
   -v ampbase-state:/var/lib/opamp-supervisor \
   ghcr.io/ampbase-io/otelcol-contrib:0.162.0-ampbase0.17.0
@@ -25,7 +28,9 @@ docker run -d --name ampbase --restart unless-stopped \
 
 Keep the `ampbase-state` volume. It holds the agent's identity and its
 last good config, so a container recreated from a newer tag stays the
-same agent rather than enrolling as a new one.
+same agent rather than enrolling as a new one. `--network host` lets
+applications on the host reach the agent's receivers at `localhost`;
+without it, publish the ports your config listens on with `-p`.
 
 Every image runs as UID 10001. A volume or bind mount the agent reads
 or writes, such as host log files, must be readable by that UID; run
@@ -36,19 +41,29 @@ with `--user 0` if it cannot be.
 | Image | `binary_path` | `config_path` | Health |
 |---|---|---|---|
 | otelcol-contrib | `/usr/bin/otelcol` | `/etc/otelcol/config.yaml` | `:13133` (`health_check` extension) |
-| fluent-bit | `/usr/local/bin/fluent-bit` | `/etc/fluent-bit/fluent-bit.yaml` | `:2020/api/v1/health` |
+| fluent-bit | `/usr/local/bin/fluent-bit` | `/etc/fluent-bit/fluent-bit.conf` | `:2020/api/v1/health` |
 | vector | `/usr/local/bin/vector` | `/etc/vector/vector.yaml` | `:8686/health` (from `api.address`) |
 
-The otelcol paths are the ones the wizard's Linux snippet uses; the
-others are the ones in the supervisor's README. Fluent Bit's binary
-is also at upstream's `/fluent-bit/bin/fluent-bit`. The supervisor owns
-each config directory, so any file name in it works.
+Only the collector's paths match the wizard's snippet; set the others'
+yourself. Fluent Bit's binary is also at upstream's
+`/fluent-bit/bin/fluent-bit`. The supervisor owns each config directory,
+so any file name in it works.
 
-**Fluent Bit** picks its config format from the file extension:
-`.yaml` is parsed as YAML, anything else as the classic format. Name
-`config_path` to match the config you deliver. Its health endpoint
-answers only when the delivered config sets both `http_server: on` and
-`health_check: on` in `service`.
+**Fluent Bit** picks its config format from the file extension: `.yaml`
+and `.yml` are parsed as YAML, anything else as the classic format. Use
+the classic format at a `.conf` path: Ampbase's intelligence export can
+only be added to a classic config. The delivered config's `[SERVICE]`
+section needs:
+
+- `HTTP_Server On` and `Health_Check On`. With `health_check_url` set,
+  the supervisor stops Fluent Bit and fails the config if
+  `/api/v1/health` does not answer.
+- `Hot_Reload On`. Without it, Fluent Bit ignores the reload the
+  supervisor sends on a config change and keeps running the old config
+  while reporting healthy.
+
+Its data directory, for tail databases and `storage.path`, is
+`/var/lib/fluent-bit`.
 
 **Vector** reports health only when the delivered config sets
 `api.enabled: true`; without it the supervisor can only tell that the

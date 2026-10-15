@@ -27,8 +27,8 @@ FROM agent
 
 COPY --from=supervisor /usr/local/bin/ampbase /usr/local/bin/ampbase
 
-# binary_path and config_path are the ones the supervisor's README gives
-# for Fluent Bit. The binary stays where upstream installs it; the link is
+# binary_path is the one the supervisor's README gives for Fluent Bit. The
+# binary stays where upstream installs it; the link is
 # copied as a directory's contents, because COPY follows a symlink named
 # as the source itself.
 COPY --from=dirs /links/ /usr/local/bin/
@@ -39,6 +39,9 @@ COPY --from=dirs /links/ /usr/local/bin/
 # (0755), whatever the source directory's mode was.
 COPY --from=dirs --chown=10001:10001 --chmod=700 /empty /etc/fluent-bit
 COPY --from=dirs --chown=10001:10001 --chmod=700 /empty /var/lib/opamp-supervisor
+# For tail databases and filesystem buffering (storage.path), which the
+# upstream image, running as root, leaves to /var/lib or /tmp.
+COPY --from=dirs --chown=10001:10001 --chmod=700 /empty /var/lib/fluent-bit
 
 # fluent/fluent-bit v5.1.3 LICENSE, sha256 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.
 COPY LICENSE.fluent-bit /usr/share/doc/fluent-bit/LICENSE
@@ -56,8 +59,14 @@ CMD ["--config", "/etc/ampbase/supervisor.yaml"]
 
 ARG AGENT_VERSION
 ARG SUPERVISOR_VERSION
+# The base is upstream's image, so its labels are inherited; the
+# authorship ones are overridden here so they describe this image.
 LABEL org.opencontainers.image.title="Ampbase Fluent Bit" \
       org.opencontainers.image.description="Fluent Bit managed by the Ampbase supervisor" \
+      org.opencontainers.image.authors="Ampbase, LLC" \
+      author="Ampbase, LLC" \
+      vendor="Ampbase, LLC" \
+      description="Fluent Bit managed by the Ampbase supervisor" \
       org.opencontainers.image.vendor="Ampbase, LLC" \
       org.opencontainers.image.url="https://ampbase.io" \
       org.opencontainers.image.source="https://github.com/ampbase-io/telemetry-agent-images" \
