@@ -1,0 +1,14 @@
+# The config the smoke test's OpAMP server delivers. With the API enabled
+# the supervisor polls its /health; without it the supervisor falls back
+# to checking only that the process is alive, so a healthy report here
+# means Vector is running this config, not merely spawned.
+api:
+  enabled: true
+  address: 127.0.0.1:8686
+sources:
+  internal:
+    type: internal_metrics
+sinks:
+  discard:
+    type: blackhole
+    inputs: [internal]
