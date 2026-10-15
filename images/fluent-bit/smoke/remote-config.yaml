@@ -1,0 +1,16 @@
+# The config the smoke test's OpAMP server delivers. /api/v1/health is
+# what the supervisor polls (health_check_url in supervisor.yaml), and
+# Fluent Bit serves it only with both http_server and health_check on,
+# so a healthy report means Fluent Bit is running this config, not
+# merely spawned.
+service:
+  http_server: on
+  http_listen: 127.0.0.1
+  http_port: 2020
+  health_check: on
+pipeline:
+  inputs:
+    - name: dummy
+  outputs:
+    - name: 'null'
+      match: '*'
