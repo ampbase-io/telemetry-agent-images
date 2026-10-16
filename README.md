@@ -120,7 +120,9 @@ Each image is a directory under `images/` holding:
   `-distroless-static`).
 - `smoke/supervisor.yaml`, a template over `{{.Endpoint}}`.
 - `smoke/remote-config.yaml`, the config the smoke test's OpAMP server
-  delivers.
+  delivers. An agent that takes several files has a
+  `smoke/remote-config/` directory instead, each `<key>.yaml` in it
+  delivered under that config-map key (Refinery's).
 
 To run the smoke test locally (Linux only: the container reaches the
 test's OpAMP server over host networking, which Docker Desktop lacks):

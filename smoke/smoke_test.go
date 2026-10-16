@@ -6,7 +6,14 @@
 //
 //	SMOKE_IMAGE  the image reference to run (already present locally)
 //	SMOKE_CASE   the image's smoke directory, holding supervisor.yaml (a
-//	             text/template over {{.Endpoint}}) and remote-config.yaml
+//	             text/template over {{.Endpoint}}) and the remote config
+//
+// The remote config is one of two shapes, never both. A file
+// remote-config.yaml is delivered as the agent's one config file, under
+// the config-map key "". A directory remote-config/ is delivered as a
+// map of named files: each <key>.yaml in it under the key <key>, for
+// agents whose adapter takes more than one file (Refinery's
+// refinery_config and refinery_rules).
 package smoke
 
 import (
@@ -19,6 +26,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"text/template"
@@ -42,11 +51,7 @@ func TestImage(t *testing.T) {
 	image := requireEnv(t, "SMOKE_IMAGE")
 	caseDir := requireEnv(t, "SMOKE_CASE")
 
-	remoteConfig, err := os.ReadFile(filepath.Join(caseDir, "remote-config.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	opamp := newFakeServer(t, remoteConfig)
+	opamp := newFakeServer(t, readRemoteConfig(t, caseDir))
 
 	supervisorYAML := renderSupervisorConfig(t, filepath.Join(caseDir, "supervisor.yaml"), opamp.endpoint)
 	name := runContainer(t, image, supervisorYAML)
@@ -81,17 +86,66 @@ func (s agentState) String() string {
 		s.configStatus.GetErrorMessage(), s.health)
 }
 
+// readRemoteConfig reads the case's remote config as the config map the
+// server delivers; see the package comment for the two shapes.
+func readRemoteConfig(t *testing.T, caseDir string) map[string][]byte {
+	t.Helper()
+	single := filepath.Join(caseDir, "remote-config.yaml")
+	files, err := filepath.Glob(filepath.Join(caseDir, "remote-config", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, statErr := os.Stat(single)
+	switch {
+	case statErr == nil && len(files) > 0:
+		t.Fatalf("%s has both remote-config.yaml and remote-config/; keep one", caseDir)
+	case statErr == nil:
+		body, err := os.ReadFile(single)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return map[string][]byte{"": body}
+	case len(files) == 0:
+		t.Fatalf("%s has neither remote-config.yaml nor remote-config/*.yaml", caseDir)
+	}
+	config := make(map[string][]byte, len(files))
+	for _, f := range files {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config[strings.TrimSuffix(filepath.Base(f), ".yaml")] = body
+	}
+	return config
+}
+
+// configHash identifies a config map by its keys and bodies, each
+// length-prefixed so no two maps share an encoding.
+func configHash(config map[string][]byte) []byte {
+	keys := make([]string, 0, len(config))
+	for k := range config {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		fmt.Fprintf(h, "%d:%s%d:", len(k), k, len(config[k]))
+		h.Write(config[k])
+	}
+	return h.Sum(nil)
+}
+
 type fakeServer struct {
 	endpoint string
 	hash     []byte
-	config   []byte
+	config   map[string][]byte
 
 	mu      sync.Mutex
 	state   agentState
 	changed chan struct{}
 }
 
-func newFakeServer(t *testing.T, config []byte) *fakeServer {
+func newFakeServer(t *testing.T, config map[string][]byte) *fakeServer {
 	t.Helper()
 
 	// The container runs on the host network, so loopback reaches it.
@@ -99,10 +153,9 @@ func newFakeServer(t *testing.T, config []byte) *fakeServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := sha256.Sum256(config)
 	fs := &fakeServer{
 		endpoint: fmt.Sprintf("http://%s/v1/opamp", lis.Addr()),
-		hash:     hash[:],
+		hash:     configHash(config),
 		config:   config,
 		changed:  make(chan struct{}, 1),
 	}
@@ -139,13 +192,13 @@ func (fs *fakeServer) onMessage(_ context.Context, _ types.Connection, msg *prot
 			protobufs.ServerCapabilities_ServerCapabilities_AcceptsEffectiveConfig),
 	}
 	if !bytes.Equal(fs.reportedHash(), fs.hash) {
+		files := make(map[string]*protobufs.AgentConfigObject, len(fs.config))
+		for key, body := range fs.config {
+			files[key] = &protobufs.AgentConfigObject{Body: body, ContentType: "text/yaml"}
+		}
 		resp.RemoteConfig = &protobufs.AgentRemoteConfig{
 			ConfigHash: fs.hash,
-			Config: &protobufs.AgentConfigMap{ConfigMap: map[string]*protobufs.AgentConfigObject{
-				// The supervisor treats a single "" key as the agent's one
-				// config file, written to agent.config_path.
-				"": {Body: fs.config, ContentType: "text/yaml"},
-			}},
+			Config:     &protobufs.AgentConfigMap{ConfigMap: files},
 		}
 	}
 	return resp
