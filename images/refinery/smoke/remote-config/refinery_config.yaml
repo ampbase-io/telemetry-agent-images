@@ -1,0 +1,15 @@
+# Delivered under the config-map key refinery_config. One node with no
+# peers, so no Redis; both listeners on loopback, and nothing configured
+# that sends anywhere until an event arrives. ListenAddr is where the
+# supervisor's health_check_url polls /alive.
+General:
+  ConfigurationVersion: 2
+Network:
+  ListenAddr: 127.0.0.1:8080
+  PeerListenAddr: 127.0.0.1:8081
+PeerManagement:
+  Type: file
+  Peers: []
+Logger:
+  Type: stdout
+  Level: info

@@ -10,13 +10,13 @@ manages the agent's configuration from then on.
 | Fluent Bit | `ghcr.io/ampbase-io/fluent-bit` |
 | Vector | `ghcr.io/ampbase-io/vector` |
 | Telegraf | *planned* |
-| Refinery | *planned* |
+| Refinery | `ghcr.io/ampbase-io/refinery` |
 
 ## Running
 
 Write a `supervisor.yaml` whose `agent` block uses the image's paths
-(see [Agent paths](#agent-paths)). For the collector, the one the Ampbase
-install wizard gives you already does. Then:
+(see [Agent paths](#agent-paths)). For the collector and Refinery, the
+one the Ampbase install wizard gives you already does. Then:
 
 ```sh
 docker run -d --name ampbase --restart unless-stopped \
@@ -43,9 +43,10 @@ with `--user 0` if it cannot be.
 | otelcol-contrib | `/usr/bin/otelcol` | `/etc/otelcol/config.yaml` | `:13133` (`health_check` extension) |
 | fluent-bit | `/usr/local/bin/fluent-bit` | `/etc/fluent-bit/fluent-bit.conf` | `:2020/api/v1/health` |
 | vector | `/usr/local/bin/vector` | `/etc/vector/vector.yaml` | `:8686/health` (from `api.address`) |
+| refinery | `/usr/local/bin/refinery` | — (the supervisor manages both files in its state dir) | `:8080/alive` |
 
-Only the collector's paths match the wizard's snippet; set the others'
-yourself. Fluent Bit's binary is also at upstream's
+Only the collector's and Refinery's paths match the wizard's snippet;
+set the others' yourself. Fluent Bit's binary is also at upstream's
 `/fluent-bit/bin/fluent-bit`. The supervisor owns each config directory,
 so any file name in it works.
 
@@ -73,6 +74,17 @@ does not expand `${VAR}` in config text unless
 leaves it unset: with it, a delivered config can read every variable in
 the container's environment. Pass it with `docker run -e` if your
 configs need it.
+
+**Refinery** takes two files, and every config delivered to it must
+carry both: `refinery_config` and `refinery_rules`. The supervisor
+refuses one that lacks either. `Network.ListenAddr` must stay on port
+8080, where the supervisor polls `/alive`. Refinery has no reload
+signal: it rereads its files every `ConfigReloadInterval` (15s by
+default), so a change to a running Refinery takes effect within that
+interval. `/alive` shows that Refinery is running, not which config it
+has loaded, so a change is reported applied before that. If you raise
+the interval, raise the supervisor's `agent.reload_delay_ms` (17000 by
+default) above it.
 
 ## Tags
 
