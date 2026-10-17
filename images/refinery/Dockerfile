@@ -9,9 +9,10 @@
 # a regex that matches only that form.
 FROM ghcr.io/ampbase-io/supervisor:v0.17.0@sha256:3a37b7f9deba6e722f847081e51cda4b64a62e1f9b3e31355ff0729476e5ff20 AS supervisor
 
-# Public ECR rather than Docker Hub: the same index digest, without Hub's
-# pull rate limit on CI runners. Refinery is not published on ghcr.io.
-FROM public.ecr.aws/honeycombio/refinery:3.4.1@sha256:34da28eac1987da612f8c152570b22fc289ef9fb84c37e5d97870c6135d9431a AS agent
+# Docker Hub, as the collector image uses. Public ECR serves the same
+# index digest but answers the publish job's concurrent two-platform
+# resolution with 429 Too Many Requests.
+FROM honeycombio/refinery:3.4.1@sha256:34da28eac1987da612f8c152570b22fc289ef9fb84c37e5d97870c6135d9431a AS agent
 
 # Writable directories for UID 10001. Runs on the build platform: it only
 # creates empty directories, so it needs no emulation for the other arch.
