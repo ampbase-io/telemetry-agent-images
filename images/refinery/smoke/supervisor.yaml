@@ -1,0 +1,15 @@
+# Rendered by smoke/smoke_test.go; {{.Endpoint}} is its OpAMP server.
+# The agent block is the one the Ampbase install wizard writes for
+# Refinery, so the smoke test also proves that snippet runs against this
+# image. There is no config_path: the supervisor writes Refinery's two
+# files into its state dir.
+version: 1
+server:
+  endpoint: {{.Endpoint}}
+  api_key: agent_smoke_test
+  transport: http
+  poll_interval_seconds: 1
+agent:
+  type: refinery
+  binary_path: /usr/local/bin/refinery
+  health_check_url: http://localhost:8080/alive

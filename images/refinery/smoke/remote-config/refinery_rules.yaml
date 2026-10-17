@@ -1,0 +1,7 @@
+# Delivered under the config-map key refinery_rules. The supervisor
+# refuses a config that lacks either key.
+RulesVersion: 2
+Samplers:
+  __default__:
+    DeterministicSampler:
+      SampleRate: 1
