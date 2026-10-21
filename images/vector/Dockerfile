@@ -7,7 +7,7 @@
 # <name>` form: scripts/image-versions reads the published image's tags
 # off them, and supervisor-release.yml rewrites the supervisor line with
 # a regex that matches only that form.
-FROM ghcr.io/ampbase-io/supervisor:v0.17.0@sha256:3a37b7f9deba6e722f847081e51cda4b64a62e1f9b3e31355ff0729476e5ff20 AS supervisor
+FROM ghcr.io/ampbase-io/supervisor:v0.18.0@sha256:bfa38eea7a5cd2b4f837305124c038d3ed68e98b5d6aad6faea7888d61fa2714 AS supervisor
 
 # The -distroless-static variant, whose /usr/local/bin/vector is statically
 # linked and so runs on distroless/static with no libc beneath it. ghcr.io
